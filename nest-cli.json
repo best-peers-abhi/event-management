@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/event-management/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "builder": "rspack",
+    "tsConfigPath": "apps/event-management/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": "apps/event-management",
+  "projects": {
+    "api-gateway": {
+      "type": "application",
+      "root": "apps/api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+      }
+    },
+    "auth-service": {
+      "type": "application",
+      "root": "apps/auth-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/auth-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/auth-service/tsconfig.app.json"
+      }
+    },
+    "event-management": {
+      "type": "application",
+      "root": "apps/event-management",
+      "entryFile": "main",
+      "sourceRoot": "apps/event-management/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/event-management/tsconfig.app.json"
+      }
+    },
+    "event-service": {
+      "type": "application",
+      "root": "apps/event-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/event-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/event-service/tsconfig.app.json"
+      }
+    },
+    "user-service": {
+      "type": "application",
+      "root": "apps/user-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/user-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/user-service/tsconfig.app.json"
+      }
+    }
+  }
+}
