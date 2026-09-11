@@ -1,6 +1,6 @@
 import { Controller, Logger } from '@nestjs/common';
 import { EventService } from './event.service.js';
-import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
+import { Ctx, EventPattern, KafkaContext, MessagePattern, Payload } from '@nestjs/microservices';
 
 @Controller('event')
 export class EventController {
@@ -61,13 +61,21 @@ export class EventController {
     }
 
     // =========================================================================
-    // EVENT PATTERNS (Asynchronous Fire & Forget via client.emit)
+    // EVENT PATTERNS (Asynchronous Kafka Pub/Sub via client.emit)
     // =========================================================================
 
     @EventPattern('event.created')
-    async handleEventCreated(@Payload() data: any) {
-        this.logger.log(`[EVENT-SERVICE] 📥 Event received via @EventPattern('event.created')`);
+    async handleEventCreated(@Payload() data: any, @Ctx() context?: KafkaContext | unknown) {
+        const kafkaCtx = context as KafkaContext;
+        this.logger.log(`[EVENT-SERVICE] 🔔 [KAFKA CONSUMER] Consumed 'event.created' topic for Event: "${data?.title}" (ID: ${data?.id})`);
         this.eventService.handleEventCreatedAsync(data);
+        const topic = kafkaCtx.getTopic();
+        const partition = kafkaCtx.getPartition();
+        const message = kafkaCtx.getMessage();
+
+        this.logger.log(
+            `[KAFKA] Topic: ${topic}, Partition: ${partition}, Offset: ${message.offset}`,
+        );
     }
 
     @EventPattern('event.registered')

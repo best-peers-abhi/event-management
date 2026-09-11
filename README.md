@@ -1,81 +1,128 @@
-# 🎟️ Event Management System (NestJS Microservices)
+# 🎟️ Event Management System (Hybrid Microservices: TCP & Apache Kafka)
 
-A distributed **Event Management System** built with **NestJS**, leveraging a **Monorepo** architecture, **TCP-based inter-service RPC communication**, and **event-driven background notifications** via `client.emit()`.
-
----
-
-## 🏗️ Architecture Overview
-
-The system consists of an **API Gateway** as the single entry point for clients and 3 specialized microservices communicating over internal TCP transport:
-
-```
-                                  ┌─────────────────────────┐
-                                  │   Client (Web / Mobile) │
-                                  └────────────┬────────────┘
-                                               │ HTTP (REST)
-                                               ▼
-                                  ┌─────────────────────────┐
-                                  │  API Gateway (Port 3000)│
-                                  └────────────┬────────────┘
-                                               │
-             ┌─────────────────────────────────┼─────────────────────────────────┐
-             │ TCP RPC (Port 3002)             │ TCP RPC (Port 3001)             │ TCP RPC (Port 3003)
-             ▼                                 ▼                                 ▼
-   ┌───────────────────┐             ┌───────────────────┐             ┌───────────────────┐
-   │   Auth Service    │             │   User Service    │             │   Event Service   │
-   │  - Register/Login │             │  - User Profiles  │             │  - Event CRUD     │
-   │  - JWT Signing    │ ───TCP RPC──>  - User Queries   │             │  - Book / Cancel  │
-   │  - Password Hash  │             │  - PostgreSQL DB  │             │  - @EventPattern  │
-   └───────────────────┘             └───────────────────┘             └───────────────────┘
-```
+A robust, enterprise-grade **Event Management Platform** built with **NestJS**, demonstrating **Hybrid Microservices Communication**. The architecture combines **high-speed Synchronous TCP RPC** for transactional request-response operations with **scalable Asynchronous Apache Kafka Pub/Sub** for decoupled event-driven streaming and broadcasting.
 
 ---
 
-## 🚀 Key Features & Capabilities
+## 🏗️ System Architecture
 
-- **API Gateway**: Single entry point handling HTTP routing, global request logging, JWT authentication verification, and translating RPC exceptions into standard HTTP responses.
-- **Authentication Service (`auth-service`)**: Handles user registration, password hashing (`bcrypt`), JWT token generation, and credential validation.
-- **User Management Service (`user-service`)**: Manages user entities, profiles, and database operations.
-- **Event Management Service (`event-service`)**:
-  - Full Event CRUD (Create, Read, Search, Update, Delete).
-  - Event Registration & Capacity Management (prevents overbooking).
-  - Registration Cancellation & Seat Release.
-  - Attendee Listing for Organizers.
-- **Asynchronous Event Processing (`client.emit()`)**:
-  - Fires background non-blocking events for ticket generation, confirmation emails, and real-time analytics.
+The application adopts a **Hybrid Communication Architecture**:
+1. **Synchronous Transport (TCP RPC)**: Used for immediate request-response queries and transactional mutations requiring atomic database validation (e.g., authentication, capacity checks, profile queries).
+2. **Asynchronous Transport (Apache Kafka)**: Used for distributed event streaming, fire-and-forget background processing, and pub/sub broadcasting across multiple consumer groups without blocking the client.
+
+```
+                                  ┌──────────────────────────┐
+                                  │  Client (HTTP / REST)    │
+                                  └─────────────┬────────────┘
+                                                │ Port 3000
+                                                ▼
+                                  ┌──────────────────────────┐
+                                  │       API Gateway        │
+                                  │ (JWT, Proxy & Producer)  │
+                                  └──────┬────────────┬──────┘
+                                         │            │
+            ┌────────────────────────────┘            └────────────────────────────┐
+            │ Synchronous TCP RPC                                                  │ Asynchronous Kafka Emit
+            ▼                                                                      ▼
+ ┌────────────────────────────────────────────────────────┐          ┌──────────────────────────┐
+ │                     TCP RPC MESH                       │          │   Apache Kafka Broker    │
+ │                                                        │          │     (Port 9092 - KRaft)  │
+ │  ┌────────────────┐  ┌───────────────┐  ┌────────────┐ │          └─────────────┬────────────┘
+ │  │  Auth Service  │  │ User Service  │  │Event Serv. │ │                        │
+ │  │   (Port 3002)  │  │  (Port 3001)  │  │(Port 3003) │ │                        │ Topic: 'event.created'
+ │  └───────┬────────┘  └───────▲───────┘  └────────────┘ │                        │ (Fan-out Broadcast)
+ │          │                   │                         │                        │
+ │          └─────TCP RPC───────┘                         │           ┌────────────┴────────────┐
+ └────────────────────────────────────────────────────────┘           ▼                         ▼
+                                                           ┌────────────────────┐    ┌────────────────────┐
+                                                           │   Event Service    │    │    User Service    │
+                                                           │ (Consumer Group:   │    │ (Consumer Group:   │
+                                                           │event-service-group)│    │ user-service-group)│
+                                                           │ - Email simulation │    │ - Broadcast notice │
+                                                           │ - Feed update      │    │ - User prompts     │
+                                                           │ - Partition/Offset │    │ - Partition/Offset │
+                                                           └────────────────────┘    └────────────────────┘
+```
+
+---
+
+## ⚡ Hybrid Communication Model
+
+| Mechanism | Transport Protocol | Pattern | Use Cases | Handlers |
+| :--- | :--- | :--- | :--- | :--- |
+| **Synchronous RPC** | **TCP** (Ports 3001, 3002, 3003) | Request-Response (`client.send()`) | User Login/Register, Event CRUD, Capacity Validation, Seat Reservation | `@MessagePattern()` |
+| **Asynchronous Pub/Sub** | **Apache Kafka** (Broker: `localhost:9092`) | Event Streaming (`kafkaClient.emit()`) | Event Creation Broadcasts, Multi-Service Notifications, Feed Updates | `@EventPattern()` with `KafkaContext` |
+| **Async Microservice Emit** | **TCP / In-Process** | Fire-and-Forget (`client.emit()`) | Ticket QR Generation, Real-Time Analytics counters | `@EventPattern()` |
+
+### 🔄 Dual-Phase Execution Workflow (Example: Event Creation)
+When a user creates an event (`POST /event`):
+1. **Phase 1 (Synchronous TCP RPC)**: The API Gateway sends an RPC message (`events.create`) to `event-service` over TCP (port 3003). `event-service` validates data and commits the record to the PostgreSQL database.
+2. **Phase 2 (Asynchronous Kafka Broadcast)**: Upon successful persistence, the API Gateway emits an `event.created` message to the Kafka topic.
+   - **`event-service` (Consumer Group: `event-service-group`)** receives the message to trigger organizer confirmation emails, recommendation feed synchronization, and offset tracking.
+   - **`user-service` (Consumer Group: `user-service-group`)** independently receives the identical event broadcast to alert users and invite event registrations.
+
+---
+
+## 🚀 Microservices Breakdown
+
+### 1. **API Gateway (`apps/api-gateway`)**
+- **Port**: HTTP `3000`
+- **Role**: Single entry point for clients, route protection with Passport JWT guards, request logging interceptor, centralized RPC-to-HTTP exception mapping.
+- **Transports**: Acts as a TCP client (`ClientProxy`) for all microservices and as a Kafka Producer (`ClientKafka`).
+
+### 2. **Authentication Service (`apps/auth-service`)**
+- **Transport**: TCP `Port 3002`
+- **Role**: User authentication, password hashing (`bcrypt`), JWT token generation and validation. Communicates with `user-service` over TCP RPC.
+
+### 3. **User Service (`apps/user-service`) — Hybrid**
+- **Transports**:
+  - **TCP `Port 3001`**: Synchronous user CRUD and profile lookups (`user.create`, `user.findById`, `user.findByEmail`, `user.findAll`).
+  - **Kafka Consumer**: Subscribes to topic `event.created` under consumer group `user-service-group`.
+- **Database**: PostgreSQL (`users` table).
+
+### 4. **Event Service (`apps/event-service`) — Hybrid**
+- **Transports**:
+  - **TCP `Port 3003`**: Synchronous event management (`events.create`, `events.findAll`, `events.findOne`, `events.update`, `events.remove`, `events.register`, `events.cancelRegistration`, `events.getAttendees`).
+  - **Kafka Consumer**: Subscribes to topic `event.created` under consumer group `event-service-group`.
+- **Database**: PostgreSQL (`events` and `event_registrations` tables).
+- **Features**: Prevents overbooking, capacity constraints, atomic registration, and seat release.
 
 ---
 
 ## 🛠️ Technology Stack
 
-- **Framework**: [NestJS](https://nestjs.com/) (v12) Monorepo
-- **Transport**: TCP Protocol via `@nestjs/microservices`
-- **Database**: PostgreSQL with [TypeORM](https://typeorm.io/)
-- **Security**: Passport, JWT (`@nestjs/jwt`), and `bcrypt`
-- **Validation**: `class-validator` and `class-transformer`
+- **Core Framework**: [NestJS](https://nestjs.com/) (v12) Monorepo Architecture
+- **Transports**:
+  - **TCP Protocol**: Native `@nestjs/microservices` TCP transport
+  - **Apache Kafka**: `kafkajs` with Kafka KRaft Mode (ZooKeeper-less)
+- **Database & ORM**: PostgreSQL with [TypeORM](https://typeorm.io/)
+- **Security & Auth**: Passport, JWT (`@nestjs/jwt`), `bcrypt`
+- **Validation**: `class-validator` & `class-transformer`
+- **Containerization**: Docker Compose for Kafka
 
 ---
 
-## 📂 Project Structure
+## 📂 Monorepo Structure
 
 ```
 event-management/
 ├── apps/
-│   ├── api-gateway/       # HTTP Gateway (Port 3000)
+│   ├── api-gateway/          # HTTP Gateway (Port 3000)
 │   │   └── src/
-│   │       ├── auth/      # Auth proxy & JWT Guards
-│   │       ├── common/    # Logging interceptor & Global exception filter
-│   │       ├── event/     # Event & Registration proxy endpoints
-│   │       └── user/      # User proxy endpoints
-│   ├── auth-service/      # Auth microservice (TCP Port 3002)
-│   │   └── src/auth/      # Login, Register, JWT generator
-│   ├── user-service/      # User microservice (TCP Port 3001)
-│   │   └── src/user/      # User CRUD & Database entity
-│   └── event-service/     # Event microservice (TCP Port 3003)
-│       └── src/event/     # Event CRUD, Registration, & @EventPattern handlers
-├── .env.example           # Template for environment variables
-├── nest-cli.json          # Monorepo configuration
-└── package.json           # Dependencies and workspace scripts
+│   │       ├── auth/         # Auth proxy, JWT Guard & Strategy
+│   │       ├── common/       # Logging interceptor & GlobalExceptionFilter
+│   │       ├── event/        # Event controller (TCP Client + Kafka Producer)
+│   │       └── user/         # User proxy controller
+│   ├── auth-service/         # Auth Microservice (TCP Port 3002)
+│   │   └── src/auth/         # Login, Register, JWT signing
+│   ├── user-service/         # Hybrid User Microservice (TCP 3001 + Kafka)
+│   │   └── src/user/         # User CRUD & Kafka 'event.created' Consumer
+│   └── event-service/        # Hybrid Event Microservice (TCP 3003 + Kafka)
+│       └── src/event/        # Event CRUD, Capacity logic & Kafka Consumer
+├── docker-compose.yml        # Apache Kafka KRaft Broker
+├── .env.example              # Environment variables template
+├── nest-cli.json             # Monorepo configuration
+└── package.json              # Workspace scripts & dependencies
 ```
 
 ---
@@ -84,53 +131,72 @@ event-management/
 
 ### 1. Prerequisites
 - **Node.js** (v18 or higher)
-- **PostgreSQL** running locally on port `5432`
+- **PostgreSQL** running on port `5432`
+- **Docker Desktop** (for running Apache Kafka)
 
-### 2. Install Dependencies
-```bash
-npm install
-```
-
-### 3. Environment Configuration
+### 2. Environment Configuration
 Create a `.env` file in the root directory (or copy from `.env.example`):
 ```env
+# Database Configuration (PostgreSQL)
 DB_HOST=localhost
 DB_PORT=5432
 DB_USERNAME=postgres
 DB_PASSWORD=root
 DB_DATABASE=event_management
+
+# Authentication (JWT)
 JWT_SECRET=event-management-secret
 JWT_EXPIRES_IN=1h
+
+# Kafka Broker Configuration
+KAFKA_BROKER=localhost:9092
 ```
 
-Make sure the PostgreSQL database exists:
+Ensure the PostgreSQL database exists:
 ```sql
 CREATE DATABASE event_management;
+```
+
+### 3. Start Apache Kafka (Docker Compose)
+The project includes a pre-configured `docker-compose.yml` running Apache Kafka in **KRaft mode** (no ZooKeeper needed):
+
+```bash
+docker compose up -d
+```
+
+Verify that Kafka broker is running on port `9092`:
+```bash
+docker ps
+```
+
+### 4. Install Dependencies
+```bash
+npm install
 ```
 
 ---
 
 ## 🏃 Running the Microservices
 
-Open 4 separate terminal windows to run all microservices in development/watch mode:
+Run each service in watch mode using separate terminal windows:
 
 ```bash
-# Terminal 1: Start User Service (TCP Port 3001)
+# Terminal 1: Start User Service (Hybrid: TCP 3001 + Kafka)
 npm run start -- user-service --watch
 
-# Terminal 2: Start Auth Service (TCP Port 3002)
+# Terminal 2: Start Auth Service (TCP 3002)
 npm run start -- auth-service --watch
 
-# Terminal 3: Start Event Service (TCP Port 3003)
+# Terminal 3: Start Event Service (Hybrid: TCP 3003 + Kafka)
 npm run start -- event-service --watch
 
-# Terminal 4: Start API Gateway (HTTP Port 3000)
+# Terminal 4: Start API Gateway (HTTP Port 3000 + Kafka Producer)
 npm run start -- api-gateway --watch
 ```
 
 ---
 
-## 📡 API Reference & Endpoints
+## 📡 API Reference & Testing Guide
 
 Base URL: `http://localhost:3000`
 
@@ -154,7 +220,7 @@ Base URL: `http://localhost:3000`
   "password": "Password123!"
 }
 ```
-*Response returns JWT `token` to use in `Authorization: Bearer <token>` for protected routes.*
+*Returns JWT access token. Use in `Authorization: Bearer <token>` for protected endpoints.*
 
 ---
 
@@ -162,52 +228,58 @@ Base URL: `http://localhost:3000`
 
 | Method | Endpoint | Description | Auth |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/users` | Get all users | Public |
+| `GET` | `/users` | Get all registered users | Public |
 | `GET` | `/users/:id` | Get user by ID | Public |
 | `GET` | `/users/email/:email` | Get user by email | Public |
 
 ---
 
-### 3. Event Endpoints
-
-#### Browse / Search Events
-`GET /event?search=tech`
-- **Auth**: Public
-- **Query Params**: `search` (optional search by title or location)
-
-#### Get Single Event Details
-`GET /event/:id`
-- **Auth**: Public
-- **Response**: Includes event details, `registeredCount`, and `remainingSeats`.
+### 3. Event Endpoints (TCP RPC + Kafka Broadcast)
 
 #### Create Event
 `POST /event`
 - **Auth**: `Bearer <token>`
 ```json
 {
-  "title": "NestJS Microservices Summit 2026",
-  "description": "Deep dive into distributed systems with NestJS and TCP",
+  "title": "NestJS & Kafka Microservices Summit 2026",
+  "description": "Deep dive into distributed hybrid microservices with TCP and Kafka KRaft",
   "location": "San Francisco, CA & Online",
   "startDate": "2026-10-15T09:00:00.000Z",
   "endDate": "2026-10-15T18:00:00.000Z",
   "capacity": 100
 }
 ```
-*Triggers asynchronous background `event.created` notification via `client.emit()`.*
 
-#### Update Event (Organizer Only)
+> **What happens under the hood?**
+> 1. **TCP RPC**: Saved to PostgreSQL database via `event-service`.
+> 2. **Kafka Broadcast**: Message published to Kafka topic `event.created`.
+> 3. **Consumer Logs**:
+>    - `event-service`: Consumes event, extracts topic/partition/offset, logs simulated confirmation email.
+>    - `user-service`: Consumes event, extracts metadata, logs notification broadcast.
+
+#### Browse / Search Events
+`GET /event?search=Kafka`
+- **Auth**: Public
+- **Query Params**: `search` (filters by title or location)
+
+#### Get Single Event Details
+`GET /event/:id`
+- **Auth**: Public
+- **Response**: Event details including `registeredCount` and `remainingSeats`.
+
+#### Update Event
 `PATCH /event/:id`
-- **Auth**: `Bearer <token>`
+- **Auth**: `Bearer <token>` (Creator/Organizer only)
 ```json
 {
   "capacity": 150,
-  "location": "Hall A - Tech Center"
+  "location": "Main Auditorium & Online"
 }
 ```
 
-#### Delete Event (Organizer Only)
+#### Delete Event
 `DELETE /event/:id`
-- **Auth**: `Bearer <token>`
+- **Auth**: `Bearer <token>` (Creator/Organizer only)
 
 ---
 
@@ -216,31 +288,59 @@ Base URL: `http://localhost:3000`
 #### Register for an Event
 `POST /event/:id/register`
 - **Auth**: `Bearer <token>`
-*Verifies seat capacity, saves registration, and triggers asynchronous background `event.registered` via `client.emit()`.*
+- Validates seat availability, saves registration, and triggers background notification.
 
 #### Cancel Registration
 `DELETE /event/:id/register`
 - **Auth**: `Bearer <token>`
-*Cancels registration and frees up a seat.*
+- Cancels registration and restores seat availability.
 
-#### View Event Attendees (Organizer Only)
+#### View Event Attendees
 `GET /event/:id/attendees`
-- **Auth**: `Bearer <token>`
+- **Auth**: `Bearer <token>` (Creator/Organizer only)
 
 ---
 
-## 💡 Key Microservice Concepts Learned
+## 💡 Key Microservice Concepts & Implementation Patterns
 
-### 1. Synchronous RPC (`client.send()`) vs Asynchronous Events (`client.emit()`)
-- **`client.send('pattern', data)`**: Used when the caller requires a response (e.g. creating event, checking capacity, user login). Handled by `@MessagePattern()`.
-- **`client.emit('event', data)`**: Used for fire-and-forget tasks (e.g. sending confirmation emails, generating tickets, updating analytics). Handled by `@EventPattern()`.
+### 1. Dual-Transport Bootstrap Pattern
+NestJS microservices connect multiple transport layers within the same application instance:
+```typescript
+// Connect TCP RPC
+app.connectMicroservice<MicroserviceOptions>({
+  transport: Transport.TCP,
+  options: { host: 'localhost', port: 3003 },
+});
 
-### 2. Centralized Error Propagation (`RpcException` ➔ `HttpException`)
+// Connect Kafka Pub/Sub
+app.connectMicroservice<MicroserviceOptions>({
+  transport: Transport.KAFKA,
+  options: {
+    client: { clientId: 'event-service', brokers: ['localhost:9092'] },
+    consumer: { groupId: 'event-service-group', allowAutoTopicCreation: true },
+  },
+});
+
+await app.startAllMicroservices();
+```
+
+### 2. Kafka Topic, Partition & Offset Observability
+Using `@Ctx() context: KafkaContext`, consumers extract real-time partition metadata:
+```typescript
+@EventPattern('event.created')
+async handleEventCreated(@Payload() data: any, @Ctx() context: KafkaContext) {
+  const topic = context.getTopic();
+  const partition = context.getPartition();
+  const message = context.getMessage();
+  this.logger.log(`Consumed from ${topic} [Partition: ${partition}, Offset: ${message.offset}]`);
+}
+```
+
+### 3. Centralized RPC Exception Propagation
 - Microservices throw `RpcException({ statusCode: 404, message: 'Event not found' })`.
-- The Gateway's `GlobalExceptionFilter` intercepts TCP errors and maps them to standard HTTP status codes (`400`, `401`, `404`, `409`, `500`).
+- The Gateway's `GlobalExceptionFilter` intercepts TCP RPC errors and transforms them into standard HTTP responses (`400`, `401`, `403`, `404`, `409`, `500`).
 
 ---
 
 ## 📄 License
-This project is open-source and intended for learning microservices with NestJS.
-
+This project is open-source and intended for learning microservices architecture with NestJS.

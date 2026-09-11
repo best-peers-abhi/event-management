@@ -5,6 +5,7 @@ import {
     Get,
     Inject,
     Logger,
+    OnModuleInit,
     Param,
     ParseIntPipe,
     Patch,
@@ -13,7 +14,7 @@ import {
     Req,
     UseGuards,
 } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientKafka, ClientProxy } from '@nestjs/microservices';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Request } from 'express';
 import { firstValueFrom } from 'rxjs';
@@ -26,12 +27,18 @@ interface AuthenticatedRequest extends Request {
 }
 
 @Controller('event')
-export class EventController {
+export class EventController implements OnModuleInit {
     private readonly logger = new Logger(EventController.name);
 
     constructor(
         @Inject('EVENT_SERVICE') private readonly eventService: ClientProxy,
+        @Inject('KAFKA_SERVICE') private readonly kafkaClient: ClientKafka,
     ) { }
+
+    async onModuleInit() {
+        await this.kafkaClient.connect();
+        this.logger.log('[API-GATEWAY] 🚀 Kafka Producer connected successfully.');
+    }
 
     // =========================================================================
     // 1. CREATE EVENT (POST /event) - Protected
@@ -49,17 +56,17 @@ export class EventController {
         };
 
         this.logger.log(`[API-GATEWAY] 📥 HTTP POST /event received from User ID: ${user.userId}`);
-        this.logger.log(`[API-GATEWAY] ➡️ Step 1 (Synchronous RPC): Calling eventService.send('events.create')...`);
+        this.logger.log(`[API-GATEWAY] ➡️ Step 1 (Synchronous RPC via TCP): Calling eventService.send('events.create')...`);
 
-        // 1. SYNCHRONOUS RPC: Wait for event to be created in DB
+        // 1. SYNCHRONOUS RPC (TCP): Save event in PostgreSQL DB via event-service
         const createdEvent = await firstValueFrom(
             this.eventService.send('events.create', payload),
         );
 
-        // 2. ASYNCHRONOUS EVENT-DRIVEN NOTIFICATION (client.emit):
-        // Fire-and-forget background task (e.g. notify subscribers, indexing, analytics)
-        this.logger.log(`[API-GATEWAY] ⚡ Step 2 (Async Fire-and-Forget): Calling eventService.emit('event.created')...`);
-        this.eventService.emit('event.created', createdEvent);
+        // 2. ASYNCHRONOUS EVENT BROADCAST (Kafka Pub/Sub):
+        // Publish to Kafka topic 'event.created' -> consumed by event-service and user-service
+        this.logger.log(`[API-GATEWAY] ⚡ Step 2 (Kafka Event Pub/Sub): Emitting 'event.created' to Kafka broker...`);
+        this.kafkaClient.emit('event.created', createdEvent);
 
         return createdEvent;
     }

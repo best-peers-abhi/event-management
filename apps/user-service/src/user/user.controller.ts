@@ -1,5 +1,5 @@
 import { Controller, Logger } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { Ctx, EventPattern, KafkaContext, MessagePattern, Payload } from '@nestjs/microservices';
 import { UserService } from './user.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 
@@ -33,6 +33,24 @@ export class UserController {
     async findAll() {
         this.logger.log(`[USER-SERVICE] 📥 Microservice received TCP pattern 'user.findAll'`);
         return this.userService.findAll();
+    }
+
+    // =========================================================================
+    // KAFKA EVENT CONSUMER (Asynchronous Pub/Sub via topic 'event.created')
+    // =========================================================================
+
+    @EventPattern('event.created')
+    async handleEventCreated(@Payload() data: any, @Ctx() context: KafkaContext | unknown) {
+        const kafkaCtx = context as KafkaContext;
+        this.logger.log(`[USER-SERVICE] 🔔 [KAFKA CONSUMER] Broadcast received for Topic 'event.created'!`);
+        this.logger.log(`[USER-SERVICE] 📢 Notification: Event "${data?.title}" (ID: ${data?.id}, Capacity: ${data?.capacity}) is created! Please register into that event.`);
+        const topic = kafkaCtx.getTopic();
+        const partition = kafkaCtx.getPartition();
+        const message = kafkaCtx.getMessage();
+
+        this.logger.log(
+            `[KAFKA] Topic: ${topic}, Partition: ${partition}, Offset: ${message.offset}`,
+        );
     }
 }
 

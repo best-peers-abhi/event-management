@@ -15,6 +15,19 @@ import { AuthModule } from '../auth/auth.module.js';
                     port: 3003,
                 },
             },
+            {
+                name: 'KAFKA_SERVICE',
+                transport: Transport.KAFKA,
+                options: {
+                    client: {
+                        clientId: 'api-gateway',
+                        brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
+                    },
+                    producer: {
+                        allowAutoTopicCreation: true,
+                    },
+                },
+            },
         ]),
     ],
     providers: [],
