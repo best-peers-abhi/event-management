@@ -1,2 +1,2 @@
-// Auth domain components barrel export
-export {};
+export * from './LoginForm';
+export * from './RegisterForm';
