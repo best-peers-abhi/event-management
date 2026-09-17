@@ -6,7 +6,7 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter.
 async function bootstrap() {
   const app = await NestFactory.create(ApiGatewayModule);
   app.enableCors({
-    origin: 'http://localhost:4000',
+    origin: ['http://localhost:4000', 'http://127.0.0.1:4000'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     allowedHeaders: 'Content-Type, Accept, Authorization',
   });
