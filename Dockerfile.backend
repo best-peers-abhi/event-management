@@ -1,0 +1,27 @@
+FROM node:20-alpine AS base
+WORKDIR /usr/src/app
+RUN apk add --no-cache python3 make g++
+
+FROM base AS dependencies
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM dependencies AS build
+COPY nest-cli.json tsconfig.json tsconfig.build.json ./
+COPY apps/ ./apps/
+RUN npx nest build api-gateway && \
+    npx nest build auth-service && \
+    npx nest build user-service && \
+    npx nest build event-service
+
+FROM base AS runner
+ARG SERVICE_NAME
+ENV SERVICE_NAME=${SERVICE_NAME}
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=build /usr/src/app/dist ./dist
+
+CMD ["sh", "-c", "node dist/apps/${SERVICE_NAME}/main.js"]

@@ -16,8 +16,8 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
                 name: 'USER_SERVICE',
                 transport: Transport.TCP,
                 options: {
-                    host: 'localhost',
-                    port: 3001,
+                    host: process.env.USER_SERVICE_HOST || 'localhost',
+                    port: Number(process.env.USER_SERVICE_PORT) || 3001,
                 },
             },
         ]),

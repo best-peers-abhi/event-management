@@ -1,17 +1,43 @@
 services:
+  # --------------------------------------------------------
+  # 1. PostgreSQL Database
+  # --------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: event-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: event_management
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d event_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
+  # 2. Apache Kafka Broker (KRaft Mode)
+  # --------------------------------------------------------
   kafka:
     image: apache/kafka:latest
     container_name: kafka-broker
+    restart: unless-stopped
     ports:
       - "9092:9092"
     environment:
-      # KRaft mode configuration (No ZooKeeper required)
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -19,3 +45,164 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
+  # 3. User Service (TCP 3001 + Kafka Consumer)
+  # --------------------------------------------------------
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        SERVICE_NAME: user-service
+    container_name: user-service
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      TCP_HOST: 0.0.0.0
+      TCP_PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: root
+      DB_DATABASE: event_management
+      KAFKA_BROKER: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
+  # 4. Auth Service (TCP 3002)
+  # --------------------------------------------------------
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        SERVICE_NAME: auth-service
+    container_name: auth-service
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      TCP_HOST: 0.0.0.0
+      TCP_PORT: 3002
+      USER_SERVICE_HOST: user-service
+      USER_SERVICE_PORT: 3001
+      JWT_SECRET: event-management-secret
+      JWT_EXPIRES_IN: 1h
+    depends_on:
+      user-service:
+        condition: service_started
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
+  # 5. Event Service (TCP 3003 + Kafka Consumer)
+  # --------------------------------------------------------
+  event-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        SERVICE_NAME: event-service
+    container_name: event-service
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      TCP_HOST: 0.0.0.0
+      TCP_PORT: 3003
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: root
+      DB_DATABASE: event_management
+      KAFKA_BROKER: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
+  # 6. API Gateway (HTTP 3000 + TCP Client + Kafka Producer)
+  # --------------------------------------------------------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        SERVICE_NAME: api-gateway
+    container_name: api-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      USER_SERVICE_HOST: user-service
+      USER_SERVICE_PORT: 3001
+      AUTH_SERVICE_HOST: auth-service
+      AUTH_SERVICE_PORT: 3002
+      EVENT_SERVICE_HOST: event-service
+      EVENT_SERVICE_PORT: 3003
+      KAFKA_BROKER: kafka:29092
+      JWT_SECRET: event-management-secret
+    depends_on:
+      user-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
+      event-service:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
+  # 7. Frontend Application (Next.js 16 - Port 4000)
+  # --------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend/app
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3000
+    container_name: frontend-app
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - event-net
+
+volumes:
+  postgres_data:
+  kafka_data:
+
+networks:
+  event-net:
+    driver: bridge

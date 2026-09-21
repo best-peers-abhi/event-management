@@ -11,8 +11,8 @@ import { AuthModule } from '../auth/auth.module.js';
                 name: 'EVENT_SERVICE',
                 transport: Transport.TCP,
                 options: {
-                    host: 'localhost',
-                    port: 3003,
+                    host: process.env.EVENT_SERVICE_HOST || 'localhost',
+                    port: Number(process.env.EVENT_SERVICE_PORT) || 3003,
                 },
             },
             {
