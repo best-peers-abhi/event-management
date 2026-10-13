@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d event_management"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d event_management" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -46,7 +46,7 @@ services:
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1" ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -55,6 +55,38 @@ services:
       - kafka_data:/tmp/kraft-combined-logs
     networks:
       - event-net
+
+  # --------------------------------------------------------
+  # 2.5. Redis In-Memory Store & Cache
+  # --------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: event-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    networks:
+      - event-net
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redis_insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    networks:
+      - event-net
+    depends_on:
+      - redis
 
   # --------------------------------------------------------
   # 3. User Service (TCP 3001 + Kafka Consumer)
@@ -134,10 +166,14 @@ services:
       DB_PASSWORD: root
       DB_DATABASE: event_management
       KAFKA_BROKER: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - event-net
@@ -202,6 +238,8 @@ services:
 volumes:
   postgres_data:
   kafka_data:
+  redis_data:
+  redisinsight_data:
 
 networks:
   event-net:

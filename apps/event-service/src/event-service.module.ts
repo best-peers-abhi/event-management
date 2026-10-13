@@ -2,13 +2,27 @@ import { Module } from '@nestjs/common';
 import { EventModule } from './event/event.module.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
+import { RedisModule } from './redis/redis.module.js';
 
 @Module({
   imports: [
-    EventModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get<string>('REDIS_HOST', 'localhost'),
+          port: Number(configService.get<string>('REDIS_PORT', '6379')),
+          maxRetriesPerRequest: null,
+        },
+      }),
+    }),
+    RedisModule,
+    EventModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -28,3 +42,4 @@ import { TypeOrmModule } from '@nestjs/typeorm';
   providers: [],
 })
 export class EventServiceModule { }
+

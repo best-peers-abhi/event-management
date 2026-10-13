@@ -42,6 +42,7 @@ async function bootstrap() {
     }),
   );
 
+  await app.init();
   await app.startAllMicroservices();
   logger.log('🚀 Event Service is running on TCP (port 3003) & Kafka (event-service-group)');
 }

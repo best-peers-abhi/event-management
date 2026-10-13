@@ -11,6 +11,7 @@ async function bootstrap() {
     allowedHeaders: 'Content-Type, Accept, Authorization',
   });
   app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useGlobalFilters(new GlobalExceptionFilter());
   const port = process.env.PORT ?? process.env.port ?? 3000;
   await app.listen(port, '0.0.0.0');
 }
