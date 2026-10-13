@@ -1,6 +1,7 @@
 export * from './user.types';
 export * from './auth.types';
 export * from './event.types';
+export * from './ai.types';
 
 export interface ApiError {
   statusCode: number;

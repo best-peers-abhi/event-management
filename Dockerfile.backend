@@ -12,7 +12,8 @@ COPY apps/ ./apps/
 RUN npx nest build api-gateway && \
     npx nest build auth-service && \
     npx nest build user-service && \
-    npx nest build event-service
+    npx nest build event-service && \
+    npx nest build ai-service
 
 FROM base AS runner
 ARG SERVICE_NAME

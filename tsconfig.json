@@ -38,6 +38,9 @@
     },
     {
       "path": "./apps/event-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/ai-service/tsconfig.app.json"
     }
   ]
 }

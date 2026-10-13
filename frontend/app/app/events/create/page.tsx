@@ -13,10 +13,15 @@ import {
   Radio,
   Clock,
   CheckCircle2,
+  Loader2,
+  Check,
+  X,
+  Wand2,
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { eventService } from '../../../services/event.service';
+import { aiService } from '../../../services/ai.service';
 import { CreateEventDto } from '../../../types';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
@@ -27,6 +32,13 @@ export default function CreateEventPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { showToast } = useToast();
+
+  // AI Suggestions State
+  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [descriptionSuggestions, setDescriptionSuggestions] = useState<string[]>([]);
 
   // Auth Guard: redirect unauthenticated users
   useEffect(() => {
@@ -64,6 +76,92 @@ export default function CreateEventPage() {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // AI Title Generation Handler
+  const handleGenerateTitle = async () => {
+    const keywords = formData.title.trim();
+    if (!keywords) {
+      showToast('Please enter keywords or a brief concept in the title box first.', 'info');
+      return;
+    }
+
+    try {
+      setIsGeneratingTitle(true);
+      const result = await aiService.generate({
+        type: 'title',
+        prompt: keywords,
+        context: formData.description.trim() || undefined,
+      });
+
+      if (result?.suggestions && result.suggestions.length > 0) {
+        setTitleSuggestions(result.suggestions);
+        showToast('✨ AI generated title options! Click one below to apply.', 'success');
+      } else {
+        showToast('No titles returned. Please refine your keywords.', 'warning');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate titles with Groq:', err);
+      showToast(err?.message || 'Failed to generate title suggestions.', 'error');
+    } finally {
+      setIsGeneratingTitle(false);
+    }
+  };
+
+  const handleSelectTitle = (selectedTitle: string) => {
+    setFormData((prev) => ({ ...prev, title: selectedTitle }));
+    if (errors.title) {
+      setErrors((prev) => {
+        const copy = { ...prev };
+        delete copy.title;
+        return copy;
+      });
+    }
+    setTitleSuggestions([]);
+    showToast('Applied title to event!', 'success');
+  };
+
+  // AI Description Generation Handler
+  const handleGenerateDescription = async () => {
+    const promptText = formData.description.trim() || formData.title.trim();
+    if (!promptText) {
+      showToast('Please enter an event title or keywords in the description first.', 'info');
+      return;
+    }
+
+    try {
+      setIsGeneratingDescription(true);
+      const result = await aiService.generate({
+        type: 'description',
+        prompt: promptText,
+        context: formData.title.trim() ? `Event Title: ${formData.title.trim()}` : undefined,
+      });
+
+      if (result?.suggestions && result.suggestions.length > 0) {
+        setDescriptionSuggestions(result.suggestions);
+        showToast('✨ AI crafted description options! Choose one below to apply.', 'success');
+      } else {
+        showToast('No descriptions returned. Please provide more context.', 'warning');
+      }
+    } catch (err: any) {
+      console.error('Failed to generate description with Groq:', err);
+      showToast(err?.message || 'Failed to generate description.', 'error');
+    } finally {
+      setIsGeneratingDescription(false);
+    }
+  };
+
+  const handleSelectDescription = (selectedDesc: string) => {
+    setFormData((prev) => ({ ...prev, description: selectedDesc }));
+    if (errors.description) {
+      setErrors((prev) => {
+        const copy = { ...prev };
+        delete copy.description;
+        return copy;
+      });
+    }
+    setDescriptionSuggestions([]);
+    showToast('Applied description to event!', 'success');
+  };
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -170,29 +268,173 @@ export default function CreateEventPage() {
           onSubmit={handleSubmit}
           className="glass-card p-6 sm:p-10 rounded-3xl border border-slate-800/80 flex flex-col gap-6"
         >
-          {/* Title Field */}
-          <Input
-            label="Event Title"
-            required
-            placeholder="e.g. Distributed Systems & Kafka Summit 2026"
-            value={formData.title}
-            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-            error={errors.title}
-            helperText="A clear, engaging name for your conference or meetup"
-            leftIcon={<CalendarDays className="w-4 h-4" />}
-          />
+          {/* Title Field with AI Assistant */}
+          <div className="flex flex-col gap-2">
+            <Input
+              label="Event Title"
+              required
+              placeholder="e.g. Distributed Systems & Kafka Summit 2026 or enter keywords..."
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              error={errors.title}
+              helperText={
+                !formData.title.trim()
+                  ? '💡 Tip: Type a brief idea or keywords (e.g. "Kafka workshop") to enable AI suggestions.'
+                  : 'A clear, engaging name for your conference or meetup'
+              }
+              leftIcon={<CalendarDays className="w-4 h-4" />}
+              labelAction={
+                <button
+                  type="button"
+                  onClick={handleGenerateTitle}
+                  disabled={isGeneratingTitle || !formData.title.trim()}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                    formData.title.trim()
+                      ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/40 text-indigo-300 hover:from-indigo-500/30 hover:to-purple-500/30 hover:border-indigo-400 hover:text-white shadow-sm shadow-indigo-500/10 cursor-pointer'
+                      : 'bg-slate-800/40 border border-slate-700/40 text-slate-500 cursor-not-allowed opacity-60'
+                  }`}
+                  title={
+                    formData.title.trim()
+                      ? 'Click to generate AI title suggestions with Groq LLaMA'
+                      : 'Type brief keywords or concept in the title box first'
+                  }
+                >
+                  {isGeneratingTitle ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-300" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  )}
+                  <span>{isGeneratingTitle ? 'Generating...' : 'AI Titles'}</span>
+                </button>
+              }
+            />
 
-          {/* Description Field */}
-          <Textarea
-            label="Event Description & Agenda"
-            required
-            rows={5}
-            placeholder="Describe what attendees will learn, keynote speakers, agenda, or prerequisites..."
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            error={errors.description}
-            helperText="Supports multi-line descriptions and agenda items"
-          />
+            {/* Title AI Suggestions Picker */}
+            {titleSuggestions.length > 0 && (
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-indigo-500/30 flex flex-col gap-3 shadow-lg shadow-indigo-950/30 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Choose an AI Generated Title:</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTitleSuggestions([])}
+                    className="text-slate-400 hover:text-slate-200 p-1 rounded-md transition-colors cursor-pointer"
+                    title="Dismiss suggestions"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  {titleSuggestions.map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSelectTitle(suggestion)}
+                      className="text-left px-3.5 py-2.5 rounded-xl bg-slate-800/60 hover:bg-indigo-600/20 border border-slate-700/60 hover:border-indigo-500/50 text-slate-200 hover:text-white text-sm transition-all duration-150 flex items-center justify-between group cursor-pointer"
+                    >
+                      <span className="font-medium group-hover:text-indigo-200 transition-colors">
+                        {suggestion}
+                      </span>
+                      <span className="text-xs text-indigo-400/80 group-hover:text-indigo-300 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0">
+                        Apply <Check className="w-3.5 h-3.5" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Description Field with AI Assistant */}
+          <div className="flex flex-col gap-2">
+            <Textarea
+              label="Event Description & Agenda"
+              required
+              rows={5}
+              placeholder="Describe what attendees will learn, keynote speakers, agenda, or prerequisites..."
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              error={errors.description}
+              helperText={
+                !formData.description.trim() && !formData.title.trim()
+                  ? '💡 Tip: Enter an event title or draft bullet points above to enable AI generation.'
+                  : 'Supports multi-line descriptions and agenda items'
+              }
+              labelAction={
+                <button
+                  type="button"
+                  onClick={handleGenerateDescription}
+                  disabled={
+                    isGeneratingDescription ||
+                    (!formData.description.trim() && !formData.title.trim())
+                  }
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                    formData.description.trim() || formData.title.trim()
+                      ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/40 text-indigo-300 hover:from-indigo-500/30 hover:to-purple-500/30 hover:border-indigo-400 hover:text-white shadow-sm shadow-indigo-500/10 cursor-pointer'
+                      : 'bg-slate-800/40 border border-slate-700/40 text-slate-500 cursor-not-allowed opacity-60'
+                  }`}
+                  title={
+                    formData.description.trim() || formData.title.trim()
+                      ? 'Click to generate AI event descriptions with Groq LLaMA'
+                      : 'Enter title or brief keywords in the description first'
+                  }
+                >
+                  {isGeneratingDescription ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-300" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  )}
+                  <span>{isGeneratingDescription ? 'Generating...' : 'AI Description'}</span>
+                </button>
+              }
+            />
+
+            {/* Description AI Suggestions Picker */}
+            {descriptionSuggestions.length > 0 && (
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-indigo-500/30 flex flex-col gap-3 shadow-lg shadow-indigo-950/30 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Choose an AI Generated Description:</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDescriptionSuggestions([])}
+                    className="text-slate-400 hover:text-slate-200 p-1 rounded-md transition-colors cursor-pointer"
+                    title="Dismiss suggestions"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {descriptionSuggestions.map((suggestion, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-xl bg-slate-800/60 hover:bg-slate-800/90 border border-slate-700/60 hover:border-indigo-500/50 transition-all flex flex-col gap-2.5 group"
+                    >
+                      <p className="text-xs text-slate-300 whitespace-pre-line leading-relaxed max-h-48 overflow-y-auto">
+                        {suggestion}
+                      </p>
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectDescription(suggestion)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-xs font-semibold text-indigo-200 hover:text-white transition-all cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5 text-indigo-300" />
+                          <span>Use this Description</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Location Field */}
           <Input

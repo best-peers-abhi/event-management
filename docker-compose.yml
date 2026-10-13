@@ -179,6 +179,28 @@ services:
       - event-net
 
   # --------------------------------------------------------
+  # 5.5. AI Service (TCP 3004 - Groq LLM Assistant)
+  # --------------------------------------------------------
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        SERVICE_NAME: ai-service
+    container_name: ai-service
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    environment:
+      TCP_HOST: 0.0.0.0
+      TCP_PORT: 3004
+      GROQ_API_KEY: groq-api-key
+      GROQ_MODEL: allam-2-7b
+      GROQ_API_URL: https://api.groq.com
+    networks:
+      - event-net
+
+  # --------------------------------------------------------
   # 6. API Gateway (HTTP 3000 + TCP Client + Kafka Producer)
   # --------------------------------------------------------
   api-gateway:
@@ -199,6 +221,8 @@ services:
       AUTH_SERVICE_PORT: 3002
       EVENT_SERVICE_HOST: event-service
       EVENT_SERVICE_PORT: 3003
+      AI_SERVICE_HOST: ai-service
+      AI_SERVICE_PORT: 3004
       KAFKA_BROKER: kafka:29092
       JWT_SECRET: event-management-secret
     depends_on:
@@ -207,6 +231,8 @@ services:
       auth-service:
         condition: service_started
       event-service:
+        condition: service_started
+      ai-service:
         condition: service_started
       kafka:
         condition: service_healthy

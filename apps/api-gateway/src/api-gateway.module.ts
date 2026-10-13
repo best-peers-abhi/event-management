@@ -4,9 +4,10 @@ import { ApiGatewayService } from './api-gateway.service.js';
 import { UserModule } from './user/user.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { EventModule } from './event/event.module.js';
+import { AiModule } from './ai/ai.module.js';
 
 @Module({
-  imports: [UserModule, AuthModule, EventModule],
+  imports: [UserModule, AuthModule, EventModule, AiModule],
   controllers: [ApiGatewayController],
   providers: [ApiGatewayService],
 })

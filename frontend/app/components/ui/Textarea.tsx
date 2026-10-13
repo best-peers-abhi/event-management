@@ -7,10 +7,11 @@ export interface TextareaProps
   label?: string;
   error?: string;
   helperText?: string;
+  labelAction?: React.ReactNode;
 }
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, helperText, className = '', id, disabled, ...props }, ref) => {
+  ({ label, error, helperText, labelAction, className = '', id, disabled, ...props }, ref) => {
     const textareaId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
     const baseTextareaStyles =
@@ -25,13 +26,16 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     return (
       <div className="w-full flex flex-col gap-1.5">
         {label && (
-          <label
-            htmlFor={textareaId}
-            className="text-xs font-semibold text-slate-300 tracking-wide uppercase"
-          >
-            {label}
-            {props.required && <span className="text-rose-400 ml-1">*</span>}
-          </label>
+          <div className="flex items-center justify-between">
+            <label
+              htmlFor={textareaId}
+              className="text-xs font-semibold text-slate-300 tracking-wide uppercase"
+            >
+              {label}
+              {props.required && <span className="text-rose-400 ml-1">*</span>}
+            </label>
+            {labelAction}
+          </div>
         )}
 
         <textarea
